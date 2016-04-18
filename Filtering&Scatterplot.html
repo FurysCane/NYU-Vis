@@ -1,0 +1,385 @@
+<!-- 
+Frances Yu
+CS6313 Information Visualization
+MIMIC III Cohort Creation Project
+04/17/2016 Filtering Stream and Scatter Plot
+Buttons are placeholders for UI functionality with other views
+Things to fix/add:
+    -have to clear circles when they run out of room on the chart
+    -Some sort of animation
+    -reversion to previous filters when other circles are clicked
+    -sort by multiple admiss type and mortality types
+    -allow user to choose a range for length of stay and/or age
+    - multi-line tooltip
+    - fix tooltip at the moment it always reads the current filter not the previous filters when hovering
+-->
+
+<html>
+    <head>
+        <style>
+            .patientList
+            {
+                float: left;
+            }
+            #tooltip
+            {
+                position: absolute;
+                top: 0;
+                left: 0;
+                background-color: rgba(255, 255, 255, 0.8);
+                padding: 5;
+                border: solid 1px black;
+                visibility: hidden;
+                opacity: 0;
+                transition: all 0.5s;
+                
+            }
+        </style>    
+    </head>
+    <body>
+        <h1>MIMC III Cohort Creation</h1>
+        <h2>Patients</h2>
+        <div>
+            <ul class = "patientList" id = "patientList">
+            </ul>
+        </div>
+        <svg id = "viz">
+            
+        </svg>
+        <p>
+        <button onclick = "clearFilters();">Clear Filters</button>
+        </p>
+        <p>
+        <button onclick = "male();">Male</button>
+        <button onclick = "female();">Female</button>
+        <p>Age Slider
+        <input 
+               type = "range" 
+               min = "0" 
+               max = "125" 
+               value = "0" 
+               id = "ageSelect" 
+               onchange = "setAge(this.value)"
+               style = "width: 500">
+        <label id="Age" />
+        <button onclick = "less();">Less Than</button>
+        <button onclick = "equals();">Equals</button>
+        <button onclick = "greater();">Greater Than</button>
+        <p> Admission Type
+        <button onclick = "emergency();">Emergency</button>
+        <button onclick = "elective();">Elective</button>
+        <button onclick = "newBorn();">New Born</button>
+        <button onclick = "urgent();">Urgent</button>
+        <p> Length of Stay
+        <input
+               type = "range"
+               min = "0"
+               max = "1000"
+               value = "0"
+               id = "losSelect"
+               onchange = "setLOS(this.value)"
+               style = "width: 500">
+        <button onclick = "lessLOS();">Less Than</button>
+        <button onclick = "greaterLOS();">Greater Than</button>
+        <div id = "tooltip">
+            tooltip
+        </div>
+        <p>Mortality
+        <button onclick = "mortalityICU();">In ICU</button>
+        <button onclick = "mortalityHosp();">In Hospital</button>
+        <button onclick = "mortality30();">In 30 days</button>
+    
+    </body>
+    <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+    <script>
+        var chartWidth = 600,
+            chartHeight = 400,
+            margin = { top: 20, left: 30, right: 20, bottom: 20},
+            innerWidth = chartWidth - margin.left - margin.right,
+            innerHeight = chartHeight - margin.top - margin.bottom;
+        var dx = 100; // change in xpos
+        //Global Variables
+        var list = d3.select("#patientList");
+        var chart = d3.select("#viz");
+        var dotGroup = chart.append("g")
+                            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+        var data = [];
+        var xpos = margin.right - dx;
+        var ypos = chartHeight/2;
+        var age = 0;
+        var agefilter = ">";
+        var admiss_type = undefined; //admission type
+        var sex = undefined;
+        var los = 0; // length of stay
+        var losFilter = ">";
+        var patientTotal;
+        var mortType = undefined;
+        var ageLabel = chart.append("text")
+                            .text("age" + agefilter + age)
+                            .style({"font-size": 50,
+                                   fill: "#ccc"})
+                            .attr("dx", 50)
+                            .attr("dy", 70)
+        var patientTotalLabel = chart.append("text")
+                            .text(patientTotal)
+                            .style({"font-size": 50,
+                                   fill: "#ccc"})
+                            .attr("dx", 300)
+                            .attr("dy", 70)
+        function highlight(name)
+        {
+            dotGroup.selectAll("circle").style("stroke", function(d,i) {
+                return d.name == name ? "black":undefined
+            })
+            list.selectAll("li").style("background-color", function(d,i){
+                return d.name == name ? "yellow" : undefined
+            })
+            
+        }
+        function unHighlight()
+        {
+            dotGroup.selectAll("circle").style("stroke", undefined)
+            list.selectAll("li").style("background-color", undefined)
+        }
+        function renderList(data)
+        {
+            list.selectAll("*").remove(); 
+            var selection = list.selectAll("li")
+                .data(data, function(d) {return d.id});
+            selection.enter()
+                .append("li")
+                .attr("class", "listItem")
+                .text(function(d) { return d.id })
+            selection.exit().remove();
+            
+        }
+        
+        function renderChart(data)
+        {
+            chart.attr("width", chartWidth)
+                .attr("height", chartHeight)
+             
+            patientTotal = data.length
+            
+            var sizeScale = d3.scale.linear()
+                .range([20,10000])
+                .domain([0, 61530]);
+            var colorScale = d3.scale.category10();
+
+            dotGroup.append("circle")
+                .attr("r", function(d) { return Math.sqrt(sizeScale(patientTotal) / Math.PI) })
+                .attr("cx", xpos = xpos + dx)
+                .attr("cy", ypos)
+                .attr("fill", colorScale(0))
+            ageLabel.text("age" + agefilter + age);
+            patientTotalLabel.text(patientTotal);
+            dotGroup
+                .on("mouseenter", function(d,i) 
+                        {
+                            //d3.select(this).style({ stroke: "black" })
+                            d3.select("#tooltip").style({
+                                visibility: "visible",
+                                top: d3.event.clientY,
+                                left: d3.event.clientX,
+                                opacity: 1,
+                            })
+                            text = "Age"+ agefilter + age + '\r'
+                                    + " Sex: " + sex + '\n'
+                                    + " Length of Stay " + losFilter + los + '\n'
+                                    + " Admission Type: " + admiss_type + '\n'
+                                    + " Mortility: " + mortType;
+                            d3.select("#tooltip").text(text);
+                            
+                         
+                        })
+                .on("mouseleave", function(d,i) 
+                        {
+                            //d3.select(this).style({ stroke: undefined })
+                            unHighlight();
+                            d3.select("#tooltip").style({
+                                visibility: "hidden",
+                                opacity: 0
+                            });
+                        })
+            //console.log("total:", patientTotal)
+        }
+
+        function filter(data)
+        {
+            var dataFiltered = data.filter(function(d)
+            {
+                if (agefilter == '<')
+                {
+                    if (d.age <= age)
+                        return d;
+                }
+                else if (agefilter == '=')
+                {
+                    if (d.age == age)
+                        return d;
+                }
+                else
+                {
+                    if (d.age >= age)
+                        return d;
+                }
+            })
+            dataFiltered = dataFiltered.filter(function(d)
+            {
+                if (sex == undefined)
+                    return d;
+                if (d.sex == sex) 
+                    return d;
+            })
+            dataFiltered = dataFiltered.filter(function(d)
+            {
+                if (admiss_type == undefined)
+                    return d;
+                if (d.admiss_type == admiss_type)
+                    return d;
+            })
+            dataFiltered = dataFiltered.filter(function(d)
+            {
+                if (losFilter == "<")
+                {if (d.los <= los)
+                    return d;}
+                else
+                {if (d.los >= los)
+                    return d;}
+            })
+            dataFiltered = dataFiltered.filter(function(d)
+            {
+                if (mortType == "Hosp")
+                {if(d.mort_hosp == 1)
+                        return d;}
+                else if (mortType == "ICU")
+                {if (d.mort_icu == 1)
+                        return d;}
+                else if (mortType == "30")
+                {if (d.mort_30 == 1)
+                        return d;}
+                else if (mortType == undefined)
+                    return d;
+                
+            })
+            render(dataFiltered);
+        }
+        
+        function render(data)
+        {
+            renderList(data);
+            renderChart(data);
+        }
+        
+        d3.json("start_point.json", function(error, result)
+        {
+            data = result;
+            render(result);
+        });
+        
+        //Slider Functions
+        function setAge(newAge)
+        {       
+            age = newAge;
+            filter(data);
+        }
+        function setLOS(newLOS)
+        {
+            los = newLOS;
+            filter(data);
+        }
+        // Button Functions
+        function clearFilters()
+        {
+            console.log("clear")
+            sex = undefined;
+            mortType = undefined;
+            setAge(0)
+            agefilter = '>';
+            setLOS(0)
+            losFilter = '>';
+            admiss_type = undefined;
+            xpos = margin.right - dx
+            dotGroup.selectAll("circle").remove();
+            filter(data);
+            
+        }
+        function male()
+        {
+            sex = 'M';
+            filter(data);
+        }
+        
+        function female()
+        {
+            sex = 'F';
+            filter(data);
+        }
+        
+        function less()
+        {
+            agefilter = '<';
+            filter(data);
+        }
+        
+        function equals()
+        {
+            agefilter = '=';
+            filter(data);
+        }
+        
+        function greater()
+        {
+            agefilter = '>';
+            filter(data);
+        }
+        
+        function emergency()
+        {
+            admiss_type = 'EMERGENCY';
+            filter(data);
+        }
+        function elective()
+        {
+            admiss_type = 'ELECTIVE';
+            filter(data);
+        }
+        function newBorn()
+        {
+            admiss_type = 'NEWBORN';
+            filter(data);
+        }
+        function urgent()
+        {
+            admiss_type = 'URGENT';
+            filter(data);
+        }
+        function lessLOS()
+        {
+            losFilter = '<';
+            filter(data);
+        }
+        function greaterLOS()
+        {
+            losFilter = '>'
+            filter(data);
+        }
+        function mortalityICU()
+        {
+            mortType = 'ICU'
+            filter(data);
+        }
+        function mortalityHosp()
+        {
+            mortType = 'Hosp'
+            filter(data);
+        }
+        function mortality30()
+        {
+            mortType = '30'
+            filter(data);
+        }
+        
+    </script>
+
+</html>
